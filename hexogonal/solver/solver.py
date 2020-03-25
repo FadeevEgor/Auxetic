@@ -3,8 +3,7 @@
 import numpy as np
 from scipy import optimize as opt
 
-mesh_filename = 'mesh3x6.txt'
-constr_filename = 'constr3x6_21.txt'
+
 # parameters of functional
 w_a = 0.3
 w_l = 1.0
@@ -22,6 +21,12 @@ class Point2D:
     def set_coordinates(self, x, y):
         self.x = x
         self.y = y
+
+    def __str__(self):
+        return str(self.x) + " " + str(self.y)
+
+    def __add__(self, other):
+        return Point2D(self.x + other.x, self.y + other.y)
 
 
 class Rib:
@@ -257,40 +262,46 @@ def get_constraints(filename, n_points):
             fixed_coordinates[2 * index + 1] = np.float64(data[2])
     return changeable, fixed_coordinates
 
+def compute(mesh_filename, constr_filename, out_filename):
+    mesh = Mesh()
+    mesh.load_from_file(mesh_filename)
+    changeable, fixed_coordinates = get_constraints(constr_filename, mesh.number_of_points())
+    initial_coordinates = mesh.get_array_of_coordinates()
+    coords = np.zeros(shape=2 * mesh.number_of_points(), dtype=np.float64)
+    for i in range(mesh.number_of_points()):
+        coords[2 * i] = choose_coords(initial_coordinates, 2 * i)
+        coords[2 * i + 1] = choose_coords(initial_coordinates, 2 * i + 1)
 
-mesh = Mesh()
-mesh.load_from_file(mesh_filename)
-changeable, fixed_coordinates = get_constraints(constr_filename, mesh.number_of_points())
-initial_coordinates = mesh.get_array_of_coordinates()
-coords = np.zeros(shape=2*mesh.number_of_points(), dtype=np.float64)
-for i in range(mesh.number_of_points()):
-    coords[2 * i] = choose_coords(initial_coordinates, 2 * i)
-    coords[2 * i + 1] = choose_coords(initial_coordinates, 2 * i + 1)
+    answer = opt.minimize(full_energy, jac=True, x0=coords, options={'maxiter': 10000, 'disp': True})
+    out_file = open("result.txt", 'w')
+    for i in range(mesh.number_of_points()):
+        string = str(answer.x[2 * i]) + " " + str(answer.x[2 * i + 1])
+        out_file.write(string + '\n')
+    out_file.close()
+
+    # analysis
+    deformed = [Point2D(answer.x[2 * i], answer.x[2 * i + 1]) for i in range(mesh.number_of_points())]
+
+    # distances before
+    l_x_0 = (mesh.points[top[0]].x + mesh.points[top[1]].x) / 2. - (
+                mesh.points[bottom[0]].x + mesh.points[bottom[1]].x) / 2.
+    l_y_0 = mesh.points[right].y - mesh.points[left].y
+
+    # distances after
+    l_x = (deformed[top[0]].x + deformed[top[1]].x) / 2. - (deformed[bottom[0]].x + deformed[bottom[1]].x) / 2.
+    l_y = deformed[right].y - deformed[left].y
+
+    # deformations and poison ratio
+    e_y = (l_y - l_y_0) / l_y_0
+    e_x = (l_x - l_x_0) / l_x_0
+    poison_ratio = - e_y / e_x
+    # print("Poison ration is ", poison_ratio)
+
+    return answer.fun, poison_ratio, e_x, e_y
 
 
-answer = opt.minimize(full_energy, jac=True, x0=coords, options={'maxiter': 10000, 'disp': True})
-out_file = open("result.txt", 'w')
-for i in range(mesh.number_of_points()):
-    string = str(answer.x[2*i]) + " " + str(answer.x[2*i + 1])
-    out_file.write(string + '\n')
-out_file.close()
-
-
-# analysis
-deformed = [Point2D(answer.x[2*i], answer.x[2 * i + 1]) for i in range(mesh.number_of_points())]
-
-# distances before
-l_x_0 = (mesh.points[top[0]].x + mesh.points[top[1]].x)/2. - (mesh.points[bottom[0]].x + mesh.points[bottom[1]].x)/2.
-l_y_0 = mesh.points[right].y - mesh.points[left].y
-
-
-# distances after
-l_x = (deformed[top[0]].x + deformed[top[1]].x)/2. - (deformed[bottom[0]].x + deformed[bottom[1]].x)/2.
-l_y = deformed[right].y - deformed[left].y
-
-# deformations and poison ratio
-e_y = (l_y - l_y_0)/l_y_0
-e_x = (l_x - l_x_0)/l_x_0
-poison_ratio = - e_y/e_x
-
-print("Poison ration is ", poison_ratio)
+if __name__ == "__main__":
+    mesh_filename = 'mesh3x6.txt'
+    constr_filename = 'constr3x6_21.txt'
+    out_filename = "result.txt"
+    print(compute(mesh_filename, constr_filename, out_filename))
